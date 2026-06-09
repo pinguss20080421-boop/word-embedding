@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>단어 임베딩 시각화 - 3D 벡터 공간</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r134/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.134.0/examples/js/controls/OrbitControls.js"></script>
+    <style>
+        body { margin: 0; font-family: 'Malgun Gothic', sans-serif; background: #111; color: #ddd; overflow: hidden; }
+        .container { display: flex; height: 100vh; }
+        .sidebar { width: 340px; background: #1a1a1a; padding: 20px; overflow-y: auto; border-right: 1px solid #333; }
+        .main { flex: 1; display: flex; flex-direction: column; position: relative; }
+        .canvas-container { flex: 1; position: relative; }
+        .info-panel { 
+            background: rgba(26, 26, 26, 0.95); 
+            padding: 15px; 
+            border-top: 1px solid #333; 
+            display: flex; 
+            gap: 30px; 
+            flex-wrap: wrap; 
+            z-index: 10;
+        }
+        h1 { margin: 0 0 20px 0; color: #0ff; text-align: center; }
+        .word-group { margin-bottom: 25px; }
+        .word-select { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+        button.word-btn { padding: 6px 12px; background: #333; color: #ddd; border: none; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        button.word-btn.active { background: #0ff; color: #111; font-weight: bold; }
+        .slider-group { margin: 12px 0; }
+        label { display: block; margin-bottom: 4px; font-size: 14px; }
+        input[type="range"] { width: 100%; }
+        .value { float: right; font-family: monospace; color: #0f0; }
+
+        #overlay-result {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(0, 0, 0, 0.85);
+            padding: 15px 20px;
+            border-radius: 8px;
+            border: 1px solid #0ff;
+            z-index: 100;
+            text-align: right;
+            min-width: 180px;
+        }
+        .cosine { color: #ff0; font-size: 28px; font-weight: bold; }
+        .angle { color: #0f0; font-size: 20px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="sidebar">
+            <h1>단어 임베딩 탐구</h1>
+            
+            <div class="word-group">
+                <h3>단어 1 선택</h3>
+                <div id="word1-buttons" class="word-select"></div>
+                <div class="slider-group">
+                    <label><span id="label1x">사과 X</span> <span id="v1x-val" class="value">0.0</span></label>
+                    <input type="range" id="v1x" min="-10" max="10" step="0.1" value="0">
+                </div>
+                <div class="slider-group">
+                    <label><span id="label1y">사과 Y</span> <span id="v1y-val" class="value">0.0</span></label>
+                    <input type="range" id="v1y" min="-10" max="10" step="0.1" value="0">
+                </div>
+                <div class="slider-group">
+                    <label><span id="label1z">사과 Z</span> <span id="v1z-val" class="value">0.0</span></label>
+                    <input type="range" id="v1z" min="-10" max="10" step="0.1" value="0">
+                </div>
+            </div>
+
+            <div class="word-group">
+                <h3>단어 2 선택</h3>
+                <div id="word2-buttons" class="word-select"></div>
+                <div class="slider-group">
+                    <label><span id="label2x">바나나 X</span> <span id="v2x-val" class="value">8.0</span></label>
+                    <input type="range" id="v2x" min="-10" max="10" step="0.1" value="8">
+                </div>
+                <div class="slider-group">
+                    <label><span id="label2y">바나나 Y</span> <span id="v2y-val" class="value">9.0</span></label>
+                    <input type="range" id="v2y" min="-10" max="10" step="0.1" value="9">
+                </div>
+                <div class="slider-group">
+                    <label><span id="label2z">바나나 Z</span> <span id="v2z-val" class="value">3.0</span></label>
+                    <input type="range" id="v2z" min="-10" max="10" step="0.1" value="3">
+                </div>
+            </div>
+        </div>
+
+        <div class="main">
+            <div class="canvas-container" id="canvas-container">
+                <div id="overlay-result">
+                    <strong>코사인 유사도:</strong><br>
+                    <span id="cosine" class="cosine">0.9939</span><br>
+                    <strong>각도:</strong> <span id="angle" class="angle">6.3°</span>
+                </div>
+            </div>
+            
+            <div class="info-panel">
+                <div>
+                    <strong>단어 1:</strong> <span id="word1-name">사과</span><br>
+                    <span id="vec1-display" style="font-family:monospace">[0, 0, 0]</span>
+                </div>
+                <div>
+                    <strong>단어 2:</strong> <span id="word2-name">바나나</span><br>
+                    <span id="vec2-display" style="font-family:monospace">[8, 9, 3]</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const words = [
+            {name: "엔비디아", vec: [9, 8, 7]}, {name: "서버", vec: [8.5, 7.5, 6]}, {name: "사용자명", vec: [7, 6, 5]},
+            {name: "이더넷", vec: [8, 7, 8]}, {name: "인터페이스", vec: [7.5, 8, 6.5]}, {name: "디스플레이", vec: [6, 9, 4]},
+            {name: "노트북", vec: [7, 8, 5]}, {name: "포트", vec: [6.5, 6, 7]}, {name: "픽셀", vec: [5.5, 9, 3]},
+            {name: "키보드", vec: [6, 7, 8]}, {name: "마우스", vec: [5, 8, 4]}, {name: "충전기", vec: [4.5, 6.5, 5]},
+
+            {name: "교수", vec: [-2, 9, 2]}, {name: "교사", vec: [-3, 8.5, 1]}, {name: "대학", vec: [-1, 8, 3]},
+            {name: "학과", vec: [-2.5, 7.5, 2]}, {name: "장학금", vec: [-1.5, 6, 4]}, {name: "고등학교", vec: [-3, 8, 2]},
+            {name: "학생", vec: [-2.5, 7.5, 3]}, {name: "고급수학", vec: [-4, 7, 1]}, {name: "과학", vec: [-3.5, 8, 2]},
+            {name: "물리", vec: [-5, 7.5, 0.5]}, {name: "영어", vec: [-2, 6.5, 3]},
+
+            {name: "사과", vec: [0, 0, 0]}, {name: "바나나", vec: [1, 9, 3]}, {name: "옥수수", vec: [2, 1, 8]},
+            {name: "소고기", vec: [3, 2, 7]}, {name: "칠리", vec: [4, 3, 6]}, {name: "맥주", vec: [2.5, 4, 5]},
+
+            {name: "체포", vec: [-8, -2, -1]}, {name: "기소", vec: [-9, -1, -2]}, {name: "유죄 판결", vec: [-7.5, -3, -1.5]},
+
+            {name: "세탁기", vec: [1, -7, 6]}, {name: "건조기", vec: [2, -8, 5]}, {name: "드라이기", vec: [0.5, -6, 4]},
+            {name: "침대", vec: [3, -5, 7]}, {name: "기숙사", vec: [2, -4, 6]},
+
+            {name: "유튜브", vec: [9, 8.5, 6]}, {name: "카톡", vec: [8.5, 7, 7]}, {name: "구글", vec: [9.5, 8, 5]},
+            {name: "그록", vec: [8, 9, 7]}, {name: "삼성", vec: [8, 7.5, 8]}, {name: "애플", vec: [9, 8, 6]},
+            {name: "아이패드", vec: [7.5, 9, 5]}, {name: "갤럭시", vec: [8.5, 8, 7]}, {name: "아이폰", vec: [9, 8.5, 6]},
+            {name: "현대 자동차", vec: [7, 6, 8]}, {name: "기아 자동차", vec: [6.5, 6.5, 7.5]}, 
+            {name: "벤츠", vec: [8, 5, 9]}, {name: "아우디", vec: [7.5, 5.5, 8.5]}, {name: "람보르기니", vec: [8.5, 4.5, 9]},
+
+            {name: "음료", vec: [3, 2, 1]}, {name: "향수", vec: [2, 3, 4]}, {name: "립밤", vec: [1.5, 2.5, 3.5]},
+            {name: "로션", vec: [2, 3.5, 4]}, {name: "샴푸", vec: [1, 4, 3]}, {name: "크록스", vec: [2.5, -6, 5]},
+            {name: "슬리퍼", vec: [2, -6.5, 4.5]}, {name: "칫솔", vec: [1.5, -5, 3]}, {name: "가방", vec: [3, -4, 6]},
+            {name: "옷", vec: [2, -7, 5]}, {name: "옷장", vec: [1.5, -8, 6]}, {name: "옷걸이", vec: [2, -7.5, 5.5]},
+            {name: "거울", vec: [1, -5.5, 4]}, {name: "인형", vec: [3, -3, 7]},
+
+            {name: "시험지", vec: [-3, 6, 4]}, {name: "OMR카드", vec: [-3.5, 5.5, 3.5]}, 
+            {name: "컴퓨터용 사인펜", vec: [-2.5, 6.5, 3]}, {name: "명찰", vec: [-2, 7, 4]},
+
+            {name: "에어컨", vec: [4, -6, 8]}, {name: "히터", vec: [3.5, -6.5, 7.5]}, {name: "텔레비전", vec: [5, 7, 4]},
+            {name: "라디오", vec: [4.5, 6.5, 3.5]},
+
+            {name: "자외선", vec: [-6, 4, 8]}, {name: "가시광선", vec: [-5.5, 5, 7.5]}, {name: "적외선", vec: [-6.5, 3.5, 8]},
+            {name: "X선", vec: [-7, 2, 7]}, {name: "마이크로파", vec: [-6, 3, 7.5]},
+
+            {name: "불교", vec: [-4, -2, 8]}, {name: "기독교", vec: [-3.5, -1.5, 7.5]}, {name: "유교", vec: [-4.5, -3, 7]},
+            {name: "생활과 윤리", vec: [-3, -2.5, 6.5]},
+
+            {name: "빌딩", vec: [5, 2, 9]}, {name: "건물", vec: [4.5, 2.5, 8.5]}, {name: "벽돌", vec: [4, 1, 7]},
+            {name: "콘크리트", vec: [4.5, 1.5, 7.5]}, {name: "타이어", vec: [6, 3, 6]}, {name: "엔진", vec: [6.5, 4, 7]}
+        ];
+
+        let currentWord1 = words.find(w => w.name === "사과");
+        let currentWord2 = words.find(w => w.name === "바나나");
+
+        let scene, camera, renderer, controls;
+        let arrow1, arrow2;
+
+        function init3D() {
+            const container = document.getElementById('canvas-container');
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x0a0a0a);
+
+            camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.1, 1000);
+            camera.position.set(15, 20, 25);   // 위에서 내려다보는 위치
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(container.clientWidth, container.clientHeight);
+            container.appendChild(renderer.domElement);
+
+            controls = new THREE.OrbitControls(camera, renderer.domElement);
+            controls.enableDamping = true;
+            controls.dampingFactor = 0.08;
+            controls.target.set(0, 0, 0);
+
+            // 축
+            const axesHelper = new THREE.AxesHelper(15);
+            scene.add(axesHelper);
+
+            // === 바닥 모눈 (XY 평면) ===
+            const grid = new THREE.GridHelper(50, 50, 0x888888, 0x333333);
+            grid.rotation.x = Math.PI / 2;   // 바닥으로 회전
+            grid.position.y = -0.05;
+            scene.add(grid);
+
+            // 바닥 평면 (더 명확하게 아래 표시)
+            const planeGeometry = new THREE.PlaneGeometry(50, 50);
+            const planeMaterial = new THREE.MeshBasicMaterial({ 
+                color: 0x222222, 
+                side: THREE.DoubleSide,
+                transparent: true,
+                opacity: 0.6
+            });
+            const plane = new THREE.Mesh(planeGeometry, planeMaterial);
+            plane.rotation.x = -Math.PI / 2;
+            plane.position.y = -0.1;
+            scene.add(plane);
+
+            // 조명
+            const ambient = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambient);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+            dirLight.position.set(10, 30, 20);
+            scene.add(dirLight);
+
+            updateArrows();
+            animate();
+        }
+
+        function createArrow(color, vec) {
+            const dir = new THREE.Vector3(...vec).normalize();
+            const length = Math.max(4, new THREE.Vector3(...vec).length() * 0.85);
+            const arrow = new THREE.ArrowHelper(dir, new THREE.Vector3(0, 0, 0), length, color, 2, 1.2);
+            scene.add(arrow);
+            return arrow;
+        }
+
+        function updateArrows() {
+            if (arrow1) scene.remove(arrow1);
+            if (arrow2) scene.remove(arrow2);
+
+            const v1 = [parseFloat(document.getElementById('v1x').value), parseFloat(document.getElementById('v1y').value), parseFloat(document.getElementById('v1z').value)];
+            const v2 = [parseFloat(document.getElementById('v2x').value), parseFloat(document.getElementById('v2y').value), parseFloat(document.getElementById('v2z').value)];
+
+            arrow1 = createArrow(0x00ff88, v1);
+            arrow2 = createArrow(0xffcc00, v2);
+
+            document.getElementById('vec1-display').textContent = `[${v1[0].toFixed(1)}, ${v1[1].toFixed(1)}, ${v1[2].toFixed(1)}]`;
+            document.getElementById('vec2-display').textContent = `[${v2[0].toFixed(1)}, ${v2[1].toFixed(1)}, ${v2[2].toFixed(1)}]`;
+
+            calculateSimilarity(v1, v2);
+        }
+
+        function calculateSimilarity(v1, v2) {
+            const dot = v1[0]*v2[0] + v1[1]*v2[1] + v1[2]*v2[2];
+            const mag1 = Math.sqrt(v1[0]**2 + v1[1]**2 + v1[2]**2) || 1;
+            const mag2 = Math.sqrt(v2[0]**2 + v2[1]**2 + v2[2]**2) || 1;
+            
+            let cosine = dot / (mag1 * mag2);
+            cosine = Math.max(-1, Math.min(1, cosine));
+            
+            const angleRad = Math.acos(cosine);
+            const angleDeg = (angleRad * 180 / Math.PI).toFixed(1);
+            
+            document.getElementById('cosine').textContent = cosine.toFixed(4);
+            document.getElementById('angle').textContent = angleDeg + '°';
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            controls.update();
+            renderer.render(scene, camera);
+        }
+
+        function updateLabels() {
+            document.getElementById('label1x').textContent = currentWord1.name + " X";
+            document.getElementById('label1y').textContent = currentWord1.name + " Y";
+            document.getElementById('label1z').textContent = currentWord1.name + " Z";
+            document.getElementById('label2x').textContent = currentWord2.name + " X";
+            document.getElementById('label2y').textContent = currentWord2.name + " Y";
+            document.getElementById('label2z').textContent = currentWord2.name + " Z";
+        }
+
+        function createWordButtons() {
+            const container1 = document.getElementById('word1-buttons');
+            const container2 = document.getElementById('word2-buttons');
+            
+            words.forEach(word => {
+                const btn1 = document.createElement('button');
+                btn1.className = 'word-btn';
+                btn1.textContent = word.name;
+                if (word.name === currentWord1.name) btn1.classList.add('active');
+                btn1.onclick = () => {
+                    currentWord1 = word;
+                    document.querySelectorAll('#word1-buttons button').forEach(b => b.classList.remove('active'));
+                    btn1.classList.add('active');
+                    document.getElementById('word1-name').textContent = word.name;
+                    document.getElementById('v1x').value = word.vec[0];
+                    document.getElementById('v1y').value = word.vec[1];
+                    document.getElementById('v1z').value = word.vec[2];
+                    updateSliders();
+                    updateLabels();
+                    updateArrows();
+                };
+                container1.appendChild(btn1);
+
+                const btn2 = document.createElement('button');
+                btn2.className = 'word-btn';
+                btn2.textContent = word.name;
+                if (word.name === currentWord2.name) btn2.classList.add('active');
+                btn2.onclick = () => {
+                    currentWord2 = word;
+                    document.querySelectorAll('#word2-buttons button').forEach(b => b.classList.remove('active'));
+                    btn2.classList.add('active');
+                    document.getElementById('word2-name').textContent = word.name;
+                    document.getElementById('v2x').value = word.vec[0];
+                    document.getElementById('v2y').value = word.vec[1];
+                    document.getElementById('v2z').value = word.vec[2];
+                    updateSliders();
+                    updateLabels();
+                    updateArrows();
+                };
+                container2.appendChild(btn2);
+            });
+        }
+
+        function updateSliders() {
+            ['v1x','v1y','v1z','v2x','v2y','v2z'].forEach(id => {
+                const slider = document.getElementById(id);
+                const val = document.getElementById(id + '-val');
+                if (slider && val) {
+                    slider.oninput = () => {
+                        val.textContent = parseFloat(slider.value).toFixed(1);
+                        updateArrows();
+                    };
+                }
+            });
+        }
+
+        window.onload = () => {
+            createWordButtons();
+            updateSliders();
+            updateLabels();
+            init3D();
+
+            window.addEventListener('resize', () => {
+                const container = document.getElementById('canvas-container');
+                camera.aspect = container.clientWidth / container.clientHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(container.clientWidth, container.clientHeight);
+            });
+        };
+    </script>
+</body>
+</html>
